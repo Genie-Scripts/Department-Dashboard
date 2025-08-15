@@ -1,11 +1,58 @@
 
-// main.js (初期表示自動化・リサイズ安定化版)
+// main.js (情報パネル対応・一覧表示対応版)
 document.addEventListener('DOMContentLoaded', () => {
     const dynamicContent = document.getElementById('dynamic-content');
     const deptSelector = document.getElementById('dept-selector');
     const wardSelector = document.getElementById('ward-selector');
     const quickButtons = document.querySelectorAll('.quick-button');
     const loader = document.getElementById('loader');
+    const initialContentHTML = dynamicContent.innerHTML;
+
+    const getBasePath = () => {
+        const path = window.location.pathname;
+        const repoName = path.split('/')[1] || '';
+        return window.location.hostname.includes('github.io') ? `/${repoName}` : '';
+    };
+    const basePath = getBasePath();
+
+    // 情報パネル関連の関数
+    window.toggleInfoPanel = function() {
+        const panel = document.getElementById('info-panel');
+        if (panel) {
+            panel.classList.toggle('active');
+        }
+    };
+
+    window.showInfoTab = function(tabName) {
+        // すべてのタブとパネルを非アクティブに
+        document.querySelectorAll('.info-tab').forEach(tab => {
+            tab.classList.remove('active');
+        });
+        document.querySelectorAll('.tab-pane').forEach(pane => {
+            pane.classList.remove('active');
+        });
+        
+        // 選択されたタブとパネルをアクティブに
+        const activeTab = document.querySelector(`.info-tab[onclick*="${tabName}"]`);
+        if (activeTab) {
+            activeTab.classList.add('active');
+        }
+        
+        const activePane = document.getElementById(tabName + '-tab');
+        if (activePane) {
+            activePane.classList.add('active');
+        }
+    };
+
+    // パネル外クリックで閉じる
+    const infoPanel = document.getElementById('info-panel');
+    if (infoPanel) {
+        infoPanel.addEventListener('click', function(e) {
+            if (e.target === this) {
+                toggleInfoPanel();
+            }
+        });
+    }
 
     const executeScriptsInContainer = (container) => {
         const scripts = container.querySelectorAll('script');
@@ -17,28 +64,16 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const resizePlots = (container) => {
-        if (window.Plotly && container) {
+        if (window.Plotly) {
             const plots = container.querySelectorAll('.plotly-graph-div');
-            plots.forEach(plot => {
-                try {
-                    Plotly.Plots.resize(plot);
-                } catch (e) {
-                    console.warn('Plotly resize error:', e);
-                }
-            });
+            plots.forEach(plot => Plotly.Plots.resize(plot));
         }
     };
 
-    const loadContent = (fragmentPath, isInitialLoad = false) => {
+    const loadContent = (fragmentPath) => {
         if (!fragmentPath) return;
         
-        // 初期ロード時はローダーを表示しない（ちらつき防止）
-        if (!isInitialLoad) {
-            loader.style.display = 'flex';
-        }
-        
-        const basePath = window.location.hostname.includes('github.io') ? 
-            (window.location.pathname.split('/')[1] ? `/${window.location.pathname.split('/')[1]}` : '') : '';
+        loader.style.display = 'flex';
         const fullPath = `${basePath}/${fragmentPath}`;
 
         fetch(fullPath)
@@ -49,58 +84,16 @@ document.addEventListener('DOMContentLoaded', () => {
             .then(html => {
                 dynamicContent.innerHTML = html;
                 executeScriptsInContainer(dynamicContent);
-                
-                // チャート描画の確実な実行（複数回試行）
-                setTimeout(() => resizePlots(dynamicContent), 100);
-                setTimeout(() => resizePlots(dynamicContent), 300);
-                setTimeout(() => resizePlots(dynamicContent), 500);
             })
             .catch(error => {
-                console.error('Fragment load error:', error);
-                dynamicContent.innerHTML = `<div class="error"><h3>コンテンツの読み込みに失敗</h3><p>${error.message}</p></div>`;
+                dynamicContent.innerHTML = `<div class="error">${error.message}</div>`;
+                console.error(error);
             })
             .finally(() => {
-                if (!isInitialLoad) {
-                    loader.style.display = 'none';
-                }
+                loader.style.display = 'none';
             });
     };
 
-    // ===== 初期表示の自動実行 =====
-    // ページロード時に病院全体のデータを自動的に表示
-    const initializeDefaultView = () => {
-        // 病院全体ボタンを探す（view-allも含めて検索）
-        const hospitalButton = Array.from(quickButtons).find(btn => {
-            const fragment = btn.dataset.fragment;
-            const text = btn.textContent || btn.innerText;
-            // ボタンのテキストまたはdata-fragment属性で病院全体を識別
-            // view-all.htmlも病院全体として認識
-            return (fragment && (fragment.includes('hospital') || fragment.includes('view-all'))) ||
-                   (text && text.includes('病院全体'));
-        });
-        
-        if (hospitalButton) {
-            // 病院全体ボタンをアクティブに設定
-            hospitalButton.classList.add('active');
-            
-            // 病院全体のフラグメントを読み込み（初期ロードフラグ付き）
-            const fragment = hospitalButton.dataset.fragment;
-            if (fragment) {
-                console.log('初期表示: 病院全体データを読み込み中...', fragment);
-                // 実際のボタンから取得したフラグメントパスを使用
-                loadContent(fragment, true);
-            } else {
-                console.warn('病院全体ボタンのdata-fragment属性が見つかりません');
-            }
-        } else {
-            // ボタンが見つからない場合、view-all.htmlを直接読み込み
-            console.warn('病院全体ボタンが見つかりません。view-all.htmlを直接読み込みます。');
-            // フォールバック: fragments/view-all.html を直接読み込み
-            loadContent('fragments/view-all.html', true);
-        }
-    };
-
-    // クイックボタンのイベントリスナー設定
     quickButtons.forEach(button => {
         button.addEventListener('click', () => {
             quickButtons.forEach(btn => btn.classList.remove('active'));
@@ -109,67 +102,63 @@ document.addEventListener('DOMContentLoaded', () => {
             const fragment = button.dataset.fragment;
             const selectorId = button.dataset.selector;
             
-            if (deptSelector) deptSelector.style.display = selectorId === 'dept-selector' ? 'flex' : 'none';
-            if (wardSelector) wardSelector.style.display = selectorId === 'ward-selector' ? 'flex' : 'none';
+            // セレクターの表示・非表示
+            deptSelector.style.display = selectorId === 'dept-selector' ? 'flex' : 'none';
+            wardSelector.style.display = selectorId === 'ward-selector' ? 'flex' : 'none';
             
-            if (selectorId) {
-                const placeholder = (type) => `<div class="placeholder-content">
-                    <h2>${type}別年度比較</h2>
-                    <p>上のプルダウンから選択してください。</p>
-                    <div class="placeholder-icon">📊</div>
-                </div>`;
-                
-                if (selectorId === 'dept-selector' && deptSelector) {
-                    deptSelector.value = "";
-                    dynamicContent.innerHTML = placeholder('診療科');
-                } else if (selectorId === 'ward-selector' && wardSelector) {
-                    wardSelector.value = "";
-                    dynamicContent.innerHTML = placeholder('病棟');
-                }
+            // ★★★ ここから修正 ★★★
+            if(selectorId) {
+              document.getElementById(selectorId).value = "";
+              // セレクターボタンが押されたら、対応する一覧(サマリー)を読み込む
+              if (selectorId === 'dept-selector') {
+                  loadContent('fragments/dept-summary.html');
+              } else if (selectorId === 'ward-selector') {
+                  loadContent('fragments/ward-summary.html');
+              } else {
+                  dynamicContent.innerHTML = '<div class="placeholder">上記から項目を選択してください</div>';
+              }
             }
+            // ★★★ 修正ここまで ★★★
             
             if (fragment) {
-                loadContent(fragment);
+                if (fragment.includes('view-all')) {
+                    dynamicContent.innerHTML = initialContentHTML;
+                    // 必要ならresizePlots(dynamicContent);を呼び出す
+                } else {
+                    loadContent(fragment);
+                }
             }
         });
     });
     
-    // セレクトボックスのイベントリスナー
     const handleSelectChange = (event) => {
         const selectedOption = event.target.options[event.target.selectedIndex];
         const fragment = selectedOption.dataset.fragment;
         if (fragment) {
             loadContent(fragment);
+        } else {
+            // ★★★ プルダウンで「項目を選択」に戻された場合、一覧を再表示 ★★★
+            if(event.target.id === 'dept-selector') {
+                loadContent('fragments/dept-summary.html');
+            } else if (event.target.id === 'ward-selector') {
+                loadContent('fragments/ward-summary.html');
+            }
         }
     };
-    
-    if (deptSelector) deptSelector.addEventListener('change', handleSelectChange);
-    if (wardSelector) wardSelector.addEventListener('change', handleSelectChange);
+    deptSelector.addEventListener('change', handleSelectChange);
+    wardSelector.addEventListener('change', handleSelectChange);
 
-    // ===== 初期表示実行 =====
-    // デバッグ: ボタンの情報を出力
-    console.log('利用可能なクイックボタン:');
-    quickButtons.forEach((btn, index) => {
-        console.log(`ボタン${index + 1}: テキスト="${btn.textContent}", data-fragment="${btn.dataset.fragment}"`);
-    });
-    
-    // DOMContentLoaded直後に病院全体を表示
-    initializeDefaultView();
-
-    // ウィンドウリサイズ時の再描画（debounce処理）
-    let resizeTimer;
-    window.addEventListener('resize', () => {
-        clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => {
-            resizePlots(document.getElementById('dynamic-content'));
-        }, 250);
-    });
-    
-    // ===== 追加: ページ表示後の確実な描画 =====
-    // window.onloadでも再度チャートをリサイズ（念のため）
     window.addEventListener('load', () => {
-        setTimeout(() => {
-            resizePlots(document.getElementById('dynamic-content'));
-        }, 500);
+        resizePlots(dynamicContent);
+    });
+    
+    // ESCキーで情報パネルを閉じる
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            const panel = document.getElementById('info-panel');
+            if (panel && panel.classList.contains('active')) {
+                toggleInfoPanel();
+            }
+        }
     });
 });
